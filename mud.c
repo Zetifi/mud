@@ -1069,7 +1069,7 @@ mud_recv_msg(struct mud *mud, struct mud_path *path,
         path->conf.pref = msg->pref;
         path->conf.fixed_rate = msg->fixed_rate;
         path->conf.loss_limit = msg->loss_limit;
-        path->conf.max_rtt_limit = msg->max_rtt_limit
+        path->conf.max_rtt_limit = msg->max_rtt_limit;
 
         path->mtu.last = MUD_LOAD_MSG(msg->mtu);
         path->mtu.ok = path->mtu.last;
