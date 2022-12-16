@@ -124,7 +124,7 @@ struct mud_msg {
     unsigned char loss;
     unsigned char fixed_rate;
     unsigned char loss_limit;
-    unsigned char max_rtt_limit;
+    unsigned char max_rtt_limit[MUD_TIME_SIZE];
     struct mud_addr addr;
 };
 
@@ -528,7 +528,7 @@ mud_get_path(struct mud *mud,
     path->conf.beat          = 100 * MUD_ONE_MSEC;
     path->conf.fixed_rate    = 1;
     path->conf.loss_limit    = 255;
-    path->conf.max_rtt_limit = 200;
+    path->conf.max_rtt_limit = 200 * MUD_ONE_MSEC;
     path->status             = MUD_PROBING;
     path->idle               = mud_now(mud);
 
@@ -1200,7 +1200,7 @@ mud_path_update(struct mud *mud, struct mud_path *path, uint64_t now)
         path->status = MUD_LOSSY;
         return 0;
     }
-    if (path->rtt.val > 200) {
+    if (path->rtt.val > path->conf.max_rtt_limit) {
         path->status = MUD_LOSSY;
         return 0;
     }
@@ -1340,7 +1340,7 @@ mud_set_path(struct mud *mud, struct mud_path_conf *conf)
     if (conf->beat)           c.beat           = conf->beat * MUD_ONE_MSEC;
     if (conf->fixed_rate)     c.fixed_rate     = conf->fixed_rate >> 1;
     if (conf->loss_limit)     c.loss_limit     = conf->loss_limit;
-    if (conf->max_rtt_limit)  c.max_rtt_limit  = conf->max_rtt_limit;
+    if (conf->max_rtt_limit)  c.max_rtt_limit  = conf->max_rtt_limit * MUD_ONE_MSEC;
     if (conf->tx_max_rate)    c.tx_max_rate    = path->tx.rate = conf->tx_max_rate;
     if (conf->rx_max_rate)    c.rx_max_rate    = path->rx.rate = conf->rx_max_rate;
 
