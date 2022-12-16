@@ -56,7 +56,7 @@ struct mud_path_conf {
     unsigned char pref;
     unsigned char fixed_rate;
     unsigned char loss_limit;
-    unsigned char max_rtt_limit;
+    uint64_t max_rtt_limit;
 };
 
 struct mud_path {
