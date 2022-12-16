@@ -124,7 +124,7 @@ struct mud_msg {
     unsigned char loss;
     unsigned char fixed_rate;
     unsigned char loss_limit;
-    unsigned char max_rtt_limit[MUD_TIME_SIZE];
+    unsigned char max_rtt_limit;
     struct mud_addr addr;
 };
 
