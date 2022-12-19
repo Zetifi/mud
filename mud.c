@@ -361,21 +361,56 @@ mud_unmapv4(struct sockaddr_storage *addr)
 static struct mud_path *
 mud_select_path(struct mud *mud, uint16_t cursor)
 {
-    uint64_t k = (cursor * mud->rate) >> 16;
+    struct mud_path *best_path = NULL;
+    uint64_t best_rtt = -1;
+    struct mud_path *lossy_path = NULL;
+    uint64_t best_lossy_rtt = -1;
+    struct mud_path *fallback_path = NULL;
 
-    for (unsigned i = 0; i < mud->count; i++) {
+    for (unsigned i = 0; i < mud->count; i++)
+    {
         struct mud_path *path = &mud->paths[i];
+        uint64_t rtt = path->rtt.val;
 
-        if (!path->ok)
-            continue;
+        // The first defined path is considered the fallback path and will always be used if every link is degraded.
+        if (fallback_path == NULL && (path->state == MUD_UP || path->state == MUD_BACKUP))
+        {
+            fallback_path = path;
+        }
 
-        if (k < path->tx.rate)
-            return path;
-
-        k -= path->tx.rate;
+        if (path->state > MUD_DOWN)
+        {
+            if (path->tx.loss <= path->conf.loss_limit)
+            {
+                if (best_rtt == -1 || rtt < best_rtt)
+                {
+                    best_path = path;
+                    best_rtt = rtt;
+                }
+            }
+            else
+            {
+                if (best_lossy_rtt == -1 || rtt < best_lossy_rtt)
+                {
+                    lossy_path = path;
+                    best_lossy_rtt = rtt;
+                }
+            }
+        }
     }
 
-    return NULL;
+    if (best_path != NULL)
+    {
+        return best_path;
+    }
+    else if (lossy_path != NULL)
+    {
+        return lossy_path;
+    }
+    else
+    {
+        return fallback_path;
+    }
 }
 
 static int
