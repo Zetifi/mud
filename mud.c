@@ -124,7 +124,6 @@ struct mud_msg {
     unsigned char loss;
     unsigned char fixed_rate;
     unsigned char loss_limit;
-    unsigned char max_rtt_limit;
     struct mud_addr addr;
 };
 
@@ -522,15 +521,14 @@ mud_get_path(struct mud *mud,
     }
     memset(path, 0, sizeof(struct mud_path));
 
-    path->conf.local         = *local;
-    path->conf.remote        = *remote;
-    path->conf.state         = state;
-    path->conf.beat          = 100 * MUD_ONE_MSEC;
-    path->conf.fixed_rate    = 1;
-    path->conf.loss_limit    = 255;
-    path->conf.max_rtt_limit = 200 * MUD_ONE_MSEC;
-    path->status             = MUD_PROBING;
-    path->idle               = mud_now(mud);
+    path->conf.local      = *local;
+    path->conf.remote     = *remote;
+    path->conf.state      = state;
+    path->conf.beat       = 100 * MUD_ONE_MSEC;
+    path->conf.fixed_rate = 1;
+    path->conf.loss_limit = 255;
+    path->status          = MUD_PROBING;
+    path->idle            = mud_now(mud);
 
     return path;
 }
@@ -903,7 +901,6 @@ mud_send_msg(struct mud *mud, struct mud_path *path, uint64_t now,
     msg->pref = path->conf.pref;
     msg->fixed_rate = path->conf.fixed_rate;
     msg->loss_limit = path->conf.loss_limit;
-    msg->max_rtt_limit = path->conf.max_rtt_limit;
 
     const struct mud_crypto_opt opt = {
         .dst = dst,
@@ -1069,7 +1066,6 @@ mud_recv_msg(struct mud *mud, struct mud_path *path,
         path->conf.pref = msg->pref;
         path->conf.fixed_rate = msg->fixed_rate;
         path->conf.loss_limit = msg->loss_limit;
-        path->conf.max_rtt_limit = msg->max_rtt_limit;
 
         path->mtu.last = MUD_LOAD_MSG(msg->mtu);
         path->mtu.ok = path->mtu.last;
@@ -1168,19 +1164,19 @@ static int
 mud_path_update(struct mud *mud, struct mud_path *path, uint64_t now)
 {
     switch (path->conf.state) {
-    case MUD_DOWN:
-        path->status = MUD_DELETING;
-        if (mud_timeout(now, path->rx.time, 2 * MUD_ONE_MIN))
-            memset(path, 0, sizeof(struct mud_path));
-        return 0;
-    case MUD_PASSIVE:
-        if (mud_timeout(now, mud->last_recv_time, 2 * MUD_ONE_MIN)) {
-            memset(path, 0, sizeof(struct mud_path));
-            return 0;
-        }
-    case MUD_UP: break;
-    default:     return 0;
+        case MUD_DOWN:
+            path->status = MUD_DELETING;
+        case MUD_PASSIVE:
+            if (mud_timeout(now, path->rx.time, 5 * MUD_ONE_MIN)) {
+                memset(path, 0, sizeof(struct mud_path));
+                return 0;
+            }
+        case MUD_UP: break;
+        default:     return 0;
     }
+    if (path->conf.state == MUD_DOWN)
+        return 0;
+
     if (path->msg.sent >= MUD_MSG_SENT_MAX) {
         if (path->mtu.probe) {
             mud_update_mtu(path, 0);
@@ -1197,10 +1193,6 @@ mud_path_update(struct mud *mud, struct mud_path *path, uint64_t now)
     }
     if (path->tx.loss > path->conf.loss_limit ||
         path->rx.loss > path->conf.loss_limit) {
-        path->status = MUD_LOSSY;
-        return 0;
-    }
-    if (path->rtt.val > path->conf.max_rtt_limit) {
         path->status = MUD_LOSSY;
         return 0;
     }
@@ -1335,14 +1327,13 @@ mud_set_path(struct mud *mud, struct mud_path_conf *conf)
 
     struct mud_path_conf c = path->conf;
 
-    if (conf->state)          c.state          = conf->state;
-    if (conf->pref)           c.pref           = conf->pref >> 1;
-    if (conf->beat)           c.beat           = conf->beat * MUD_ONE_MSEC;
-    if (conf->fixed_rate)     c.fixed_rate     = conf->fixed_rate >> 1;
-    if (conf->loss_limit)     c.loss_limit     = conf->loss_limit;
-    if (conf->max_rtt_limit)  c.max_rtt_limit  = conf->max_rtt_limit * MUD_ONE_MSEC;
-    if (conf->tx_max_rate)    c.tx_max_rate    = path->tx.rate = conf->tx_max_rate;
-    if (conf->rx_max_rate)    c.rx_max_rate    = path->rx.rate = conf->rx_max_rate;
+    if (conf->state)       c.state       = conf->state;
+    if (conf->pref)        c.pref        = conf->pref >> 1;
+    if (conf->beat)        c.beat        = conf->beat * MUD_ONE_MSEC;
+    if (conf->fixed_rate)  c.fixed_rate  = conf->fixed_rate >> 1;
+    if (conf->loss_limit)  c.loss_limit  = conf->loss_limit;
+    if (conf->tx_max_rate) c.tx_max_rate = path->tx.rate = conf->tx_max_rate;
+    if (conf->rx_max_rate) c.rx_max_rate = path->rx.rate = conf->rx_max_rate;
 
     *conf = path->conf = c;
     return 0;
