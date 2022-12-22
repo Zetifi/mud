@@ -1575,7 +1575,7 @@ mud_update(struct mud *mud)
         return -1;
 
     // return mud->window < 1500;
-    return 1;
+    return 0;
 }
 
 int
@@ -1639,7 +1639,7 @@ int
 mud_send_wait(struct mud *mud)
 {
     // return mud->window < 1500;
-    return 1;
+    return 0;
 }
 
 int
