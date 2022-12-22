@@ -64,7 +64,9 @@ struct mud_path {
         uint64_t rx_max_rate;
         uint64_t beat;
         unsigned char fixed_rate;
-        unsigned char loss_limit;
+        unsigned char preferred; // True if this path should be used when all paths are lossy.
+        unsigned char loss_limit; // Threshold for marking this path as lossy.
+        uint64_t rtt_limit; // Threadhold for marking this path as laggy.
     } conf;
     uint64_t idle;
     unsigned char ok;
@@ -96,7 +98,7 @@ int mud_set_conf (struct mud *, struct mud_conf *);
 
 int mud_set_state (struct mud *, struct sockaddr *, enum mud_state,
                    unsigned long, unsigned long, unsigned long,
-                   unsigned char, unsigned char);
+                   unsigned char, unsigned char, unsigned char, uint64_t);
 
 int mud_peer (struct mud *, struct sockaddr *);
 
