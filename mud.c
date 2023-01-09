@@ -424,64 +424,76 @@ mud_send_path(struct mud *mud, struct mud_path *path, uint64_t now,
     if (!size || !path)
         return 0;
 
-    unsigned char ctrl[MUD_CTRL_SIZE];
-
     struct msghdr msg = {
-        .msg_name = &path->addr,
-        .msg_iov = &(struct iovec) {
+        .msg_iov = &(struct iovec){
             .iov_base = data,
             .iov_len = size,
         },
         .msg_iovlen = 1,
-        .msg_control = ctrl,
     };
 
-    memset(ctrl, 0, sizeof(ctrl));
-
-    if (path->addr.ss_family == AF_INET) {
+    if (path->remote_address.ss_family == AF_INET)
+    {
+        // Send destination address.
+        msg.msg_name = &path->remote_address;
         msg.msg_namelen = sizeof(struct sockaddr_in);
-        msg.msg_controllen = CMSG_SPACE(MUD_PKTINFO_SIZE) +
-                             CMSG_SPACE(sizeof(int));
 
-        struct cmsghdr *cmsg = CMSG_FIRSTHDR(&msg);
+        size_t control_len = CMSG_SPACE(sizeof(struct in_pktinfo)) + CMSG_SPACE(sizeof(int));
+        unsigned char control[control_len];
+        memset(control, 0, sizeof(control));
+        msg.msg_control = control;
+        msg.msg_controllen = control_len;
 
-        cmsg->cmsg_level = IPPROTO_IP;
-        cmsg->cmsg_type = MUD_PKTINFO;
-        cmsg->cmsg_len = CMSG_LEN(MUD_PKTINFO_SIZE);
-        memcpy(MUD_PKTINFO_DST(CMSG_DATA(cmsg)),
-               &((struct sockaddr_in *)&path->local_addr)->sin_addr,
-               sizeof(struct in_addr));
+        struct cmsghdr *control_msg = CMSG_FIRSTHDR(&msg);
 
-        cmsg = (struct cmsghdr *)((unsigned char *)cmsg +
-                                  CMSG_SPACE(MUD_PKTINFO_SIZE));
+        // Send packet through the requested path if you're the client.
+        control_msg->cmsg_level = IPPROTO_IP;
+        control_msg->cmsg_type = MUD_PKTINFO;
+        control_msg->cmsg_len = CMSG_LEN(sizeof(struct in_pktinfo));
+        struct in_pktinfo *in_pktinfo = (struct in_pktinfo *)CMSG_DATA(control_msg);
+        in_pktinfo->ipi_ifindex = if_nametoindex(path->interface_name);
 
-        cmsg->cmsg_level = IPPROTO_IP;
-        cmsg->cmsg_type = IP_TOS;
-        cmsg->cmsg_len = CMSG_LEN(sizeof(int));
-        memcpy(CMSG_DATA(cmsg), &mud->tc, sizeof(int));
+        control_msg = CMSG_NXTHDR(&msg, control_msg);
 
-    } else if (path->addr.ss_family == AF_INET6) {
+        // Use tos.
+        control_msg->cmsg_level = IPPROTO_IP;
+        control_msg->cmsg_type = IP_TOS;
+        control_msg->cmsg_len = CMSG_LEN(sizeof(int));
+        int *tos = (int *)CMSG_DATA(control_msg);
+        *tos = mud->tc;
+    }
+    else if (path->remote_address.ss_family == AF_INET6)
+    {
+        // Send destination address.
+        msg.msg_name = &path->remote_address;
         msg.msg_namelen = sizeof(struct sockaddr_in6);
-        msg.msg_controllen = CMSG_SPACE(sizeof(struct in6_pktinfo)) +
-                             CMSG_SPACE(sizeof(int));
 
-        struct cmsghdr *cmsg = CMSG_FIRSTHDR(&msg);
+        size_t control_len = CMSG_SPACE(sizeof(struct in6_pktinfo)) + CMSG_SPACE(sizeof(int));
+        unsigned char control[control_len];
+        memset(control, 0, sizeof(control));
+        msg.msg_control = control;
+        msg.msg_controllen = control_len;
 
-        cmsg->cmsg_level = IPPROTO_IPV6;
-        cmsg->cmsg_type = IPV6_PKTINFO;
-        cmsg->cmsg_len = CMSG_LEN(sizeof(struct in6_pktinfo));
-        memcpy(&((struct in6_pktinfo *)CMSG_DATA(cmsg))->ipi6_addr,
-               &((struct sockaddr_in6 *)&path->local_addr)->sin6_addr,
-               sizeof(struct in6_addr));
+        struct cmsghdr *control_msg = CMSG_FIRSTHDR(&msg);
 
-        cmsg = (struct cmsghdr *)((unsigned char *)cmsg +
-                                  CMSG_SPACE(sizeof(struct in6_pktinfo)));
+        // Send packet through the requested path if you're the client.
+        control_msg->cmsg_level = IPPROTO_IPV6;
+        control_msg->cmsg_type = IPV6_PKTINFO;
+        control_msg->cmsg_len = CMSG_LEN(sizeof(struct in6_pktinfo));
+        struct in6_pktinfo *in6_pktinfo = (struct in6_pktinfo *)CMSG_DATA(control_msg);
+        in6_pktinfo->ipi6_ifindex = if_nametoindex(path->interface_name);
 
-        cmsg->cmsg_level = IPPROTO_IPV6;
-        cmsg->cmsg_type = IPV6_TCLASS;
-        cmsg->cmsg_len = CMSG_LEN(sizeof(int));
-        memcpy(CMSG_DATA(cmsg), &mud->tc, sizeof(int));
-    } else {
+        control_msg = CMSG_NXTHDR(&msg, control_msg);
+
+        // Use tos.
+        control_msg->cmsg_level = IPPROTO_IPV6;
+        control_msg->cmsg_type = IPV6_TCLASS;
+        control_msg->cmsg_len = CMSG_LEN(sizeof(int));
+        int *tos = (int *)CMSG_DATA(control_msg);
+        *tos = mud->tc;
+    }
+    else
+    {
         errno = EAFNOSUPPORT;
         return -1;
     }
@@ -580,34 +592,6 @@ mud_get_paths(struct mud *mud, unsigned *ret_count)
 }
 
 static void
-mud_copy_port(struct sockaddr_storage *d, struct sockaddr_storage *s)
-{
-    void *port;
-
-    switch (s->ss_family) {
-    case AF_INET:
-        port = &((struct sockaddr_in *)s)->sin_port;
-        break;
-    case AF_INET6:
-        port = &((struct sockaddr_in6 *)s)->sin6_port;
-        break;
-    default:
-        return;
-    }
-
-    switch (d->ss_family) {
-    case AF_INET:
-        memcpy(&((struct sockaddr_in *)d)->sin_port,
-               port, sizeof(in_port_t));
-        break;
-    case AF_INET6:
-        memcpy(&((struct sockaddr_in6 *)d)->sin6_port,
-               port, sizeof(in_port_t));
-        break;
-    }
-}
-
-static void
 mud_reset_path(struct mud_path *path)
 {
     path->mtu.ok = 0;
@@ -615,23 +599,15 @@ mud_reset_path(struct mud_path *path)
     path->mtu.last = 0;
 }
 
-static struct mud_path *
-mud_get_path(struct mud *mud, struct sockaddr_storage *local_addr,
-             struct sockaddr_storage *addr, int create)
+static struct mud_path *mud_get_path(struct mud *mud, char interface_name[16], struct sockaddr_storage *remote_address, int create)
 {
-    if (local_addr->ss_family != addr->ss_family) {
-        errno = EINVAL;
-        return NULL;
-    }
-
-    mud_copy_port(local_addr, &mud->addr);
-
-    for (unsigned i = 0; i < mud->count; i++) {
+    for (unsigned i = 0; i < mud->count; i++)
+    {
         struct mud_path *path = &mud->paths[i];
 
-        if ((path->state != MUD_EMPTY) &&
-            (!mud_cmp_addr(local_addr, &path->local_addr)) &&
-            (!mud_cmp_addr(addr, &path->addr)))
+        if (path->state != MUD_EMPTY &&
+            strncmp(interface_name, path->interface_name, 16) == 0 &&
+            mud_cmp_addr(remote_address, &path->remote_address) == 0)
             return path;
     }
 
@@ -655,11 +631,7 @@ mud_get_path(struct mud *mud, struct sockaddr_storage *local_addr,
             return NULL;
         }
 
-        struct mud_path *paths = realloc(mud->paths,
-                (mud->count + 1) * sizeof(struct mud_path));
-
-        if (!paths)
-            return NULL;
+        struct mud_path *paths = realloc(mud->paths, (mud->count + 1) * sizeof(struct mud_path));
 
         path = &paths[mud->count];
 
@@ -669,16 +641,16 @@ mud_get_path(struct mud *mud, struct sockaddr_storage *local_addr,
 
     memset(path, 0, sizeof(struct mud_path));
 
-    memcpy(&path->local_addr, local_addr, sizeof(*local_addr));
-    memcpy(&path->addr, addr, sizeof(*addr));
+    memcpy(path->interface_name, interface_name, 16);
+    memcpy(&path->remote_address, remote_address, sizeof(struct sockaddr_storage));
 
-    path->state           = MUD_UP;
-    path->conf.beat       = 100 * MUD_ONE_MSEC;
+    path->state = MUD_UP;
+    path->conf.beat = 100 * MUD_ONE_MSEC;
     path->conf.fixed_rate = 1;
     path->conf.preferred = 0;
     path->conf.loss_limit = 255;
     path->conf.rtt_limit = 200 * MUD_ONE_MSEC;
-    path->idle            = mud_now(mud);
+    path->idle = mud_now(mud);
 
     return path;
 }
@@ -1075,46 +1047,6 @@ mud_decrypt(struct mud *mud,
 }
 
 static int
-mud_localaddr(struct sockaddr_storage *addr, struct msghdr *msg)
-{
-    struct cmsghdr *cmsg = CMSG_FIRSTHDR(msg);
-
-    for (; cmsg; cmsg = CMSG_NXTHDR(msg, cmsg)) {
-        if ((cmsg->cmsg_level == IPPROTO_IP) &&
-            (cmsg->cmsg_type == MUD_PKTINFO))
-            break;
-        if ((cmsg->cmsg_level == IPPROTO_IPV6) &&
-            (cmsg->cmsg_type == IPV6_PKTINFO))
-            break;
-    }
-
-    if (!cmsg)
-        return 1;
-
-    memset(addr, 0, sizeof(struct sockaddr_storage));
-
-    if (cmsg->cmsg_level == IPPROTO_IP) {
-        addr->ss_family = AF_INET;
-        memcpy(&((struct sockaddr_in *)addr)->sin_addr,
-               MUD_PKTINFO_SRC(CMSG_DATA(cmsg)),
-               sizeof(struct in_addr));
-    } else {
-        addr->ss_family = AF_INET6;
-        memcpy(&((struct sockaddr_in6 *)addr)->sin6_addr,
-               &((struct in6_pktinfo *)CMSG_DATA(cmsg))->ipi6_addr,
-               sizeof(struct in6_addr));
-        mud_unmapv4(addr);
-    }
-
-    return 0;
-}
-
-// Send control message via path.
-// now - Current time.
-// send_time - 
-// fw_bytes -
-// fw_total - 
-static int
 mud_send_msg(struct mud *mud, struct mud_path *path, uint64_t now,
              uint64_t sent_time, uint64_t fw_bytes, uint64_t fw_total,
              size_t size)
@@ -1130,23 +1062,6 @@ mud_send_msg(struct mud *mud, struct mud_path *path, uint64_t now,
 
     mud_store(dst, MUD_MSG_MARK(now), MUD_TIME_SIZE);
     MUD_STORE_MSG(msg->sent_time, sent_time);
-
-    if (path->addr.ss_family == AF_INET) {
-        msg->addr.ff[0] = 0xFF;
-        msg->addr.ff[1] = 0xFF;
-        memcpy(msg->addr.v4,
-               &((struct sockaddr_in *)&path->addr)->sin_addr, 4);
-        memcpy(msg->addr.port,
-               &((struct sockaddr_in *)&path->addr)->sin_port, 2);
-    } else if (path->addr.ss_family == AF_INET6) {
-        memcpy(msg->addr.v6,
-               &((struct sockaddr_in6 *)&path->addr)->sin6_addr, 16);
-        memcpy(msg->addr.port,
-               &((struct sockaddr_in6 *)&path->addr)->sin6_port, 2);
-    } else {
-        errno = EAFNOSUPPORT;
-        return -1;
-    }
 
     msg->state = (unsigned char)path->state;
 
@@ -1220,20 +1135,6 @@ mud_update_stat(struct mud_stat *stat, const uint64_t val)
 }
 
 static void
-mud_ss_from_packet(struct sockaddr_storage *ss, struct mud_msg *pkt)
-{
-    if (mud_addr_is_v6(&pkt->addr)) {
-        ss->ss_family = AF_INET6;
-        memcpy(&((struct sockaddr_in6 *)ss)->sin6_addr, pkt->addr.v6, 16);
-        memcpy(&((struct sockaddr_in6 *)ss)->sin6_port, pkt->addr.port, 2);
-    } else {
-        ss->ss_family = AF_INET;
-        memcpy(&((struct sockaddr_in *)ss)->sin_addr, pkt->addr.v4, 4);
-        memcpy(&((struct sockaddr_in *)ss)->sin_port, pkt->addr.port, 2);
-    }
-}
-
-static void
 mud_update_window(struct mud *mud, struct mud_path *path, uint64_t now,
                   uint64_t tx_dt, uint64_t tx_bytes, uint64_t tx_pkt,
                   uint64_t rx_dt, uint64_t rx_bytes, uint64_t rx_pkt)
@@ -1299,8 +1200,6 @@ mud_recv_msg(struct mud *mud, struct mud_path *path,
              unsigned char *data, size_t size)
 {
     struct mud_msg *msg = (struct mud_msg *)data;
-
-    mud_ss_from_packet(&path->r_addr, msg);
 
     const uint64_t tx_time = MUD_LOAD_MSG(msg->sent_time);
 
@@ -1368,7 +1267,7 @@ mud_recv_msg(struct mud *mud, struct mud_path *path,
         if (!mud->peer.set)
             mud_keyx_init(&mud->keyx, now);
         if (mud_keyx(&mud->keyx, msg->pkey, msg->aes)) {
-            mud->bad.keyx.addr = path->addr;
+            mud->bad.keyx.addr = path->remote_address;
             mud->bad.keyx.time = now;
             mud->bad.keyx.count++;
             return;
@@ -1386,20 +1285,20 @@ mud_recv_msg(struct mud *mud, struct mud_path *path,
 int
 mud_recv(struct mud *mud, void *data, size_t size)
 {
-    struct sockaddr_storage addr;
-    unsigned char ctrl[MUD_CTRL_SIZE];
+    struct sockaddr_storage remote_address;
+    unsigned char control[MUD_CTRL_SIZE];
     unsigned char packet[MUD_PKT_MAX_SIZE];
 
     struct msghdr msg = {
-        .msg_name = &addr,
-        .msg_namelen = sizeof(addr),
+        .msg_name = &remote_address,
+        .msg_namelen = sizeof(remote_address),
         .msg_iov = &(struct iovec) {
             .iov_base = packet,
             .iov_len = sizeof(packet),
         },
         .msg_iovlen = 1,
-        .msg_control = ctrl,
-        .msg_controllen = sizeof(ctrl),
+        .msg_control = control,
+        .msg_controllen = sizeof(control),
     };
 
     const ssize_t packet_size = recvmsg(mud->fd, &msg, 0);
@@ -1414,11 +1313,11 @@ mud_recv(struct mud *mud, void *data, size_t size)
     const uint64_t now = mud_now(mud);
     const uint64_t sent_time = mud_load(packet, MUD_TIME_SIZE);
 
-    mud_unmapv4(&addr);
+    mud_unmapv4(&remote_address);
 
     if ((MUD_TIME_MASK(now - sent_time) > mud->time_tolerance) &&
         (MUD_TIME_MASK(sent_time - now) > mud->time_tolerance)) {
-        mud->bad.difftime.addr = addr;
+        mud->bad.difftime.addr = remote_address;
         mud->bad.difftime.time = now;
         mud->bad.difftime.count++;
         return 0;
@@ -1429,25 +1328,52 @@ mud_recv(struct mud *mud, void *data, size_t size)
                      : mud_decrypt(mud, data, size, packet, (size_t)packet_size);
 
     if (!ret) {
-        mud->bad.decrypt.addr = addr;
+        mud->bad.decrypt.addr = remote_address;
         mud->bad.decrypt.time = now;
         mud->bad.decrypt.count++;
         return 0;
     }
 
-    struct sockaddr_storage local_addr;
+    // Retrieve the interface name that this packet was recieved on.
+    char interface_name[16] = {0};
 
-    if (mud_localaddr(&local_addr, &msg))
+    struct cmsghdr *control_msg = CMSG_FIRSTHDR(&msg);
+    while (control_msg &&
+           !((control_msg->cmsg_level == IPPROTO_IP && control_msg->cmsg_type == MUD_PKTINFO) ||
+             (control_msg->cmsg_level == IPPROTO_IPV6 && control_msg->cmsg_type == IPV6_PKTINFO)))
+    {
+        control_msg = CMSG_NXTHDR(&msg, control_msg);
+    }
+
+    if (control_msg == NULL)
+    {
         return 0;
+    }
 
-    struct mud_path *path = mud_get_path(mud, &local_addr, &addr, 1);
+    if (control_msg->cmsg_level == IPPROTO_IP)
+    {
+        struct in_pktinfo *in_pktinfo = (struct in_pktinfo *)CMSG_DATA(control_msg);
+        if_indextoname(in_pktinfo->ipi_ifindex, interface_name);
+    }
+    if (control_msg->cmsg_level == IPPROTO_IPV6)
+    {
+        struct in6_pktinfo *in6_pktinfo = (struct in6_pktinfo *)CMSG_DATA(control_msg);
+        if_indextoname(in6_pktinfo->ipi6_ifindex, interface_name);
+    }
+
+    struct mud_path *path = mud_get_path(mud, interface_name, &remote_address, 1);
 
     if (!path || path->state <= MUD_DOWN)
+    {
         return 0;
+    }
 
-    if (MUD_MSG(sent_time)) {
+    if (MUD_MSG(sent_time))
+    {
         mud_recv_msg(mud, path, now, sent_time, data, (size_t)packet_size);
-    } else {
+    }
+    else
+    {
         path->idle = now;
     }
 
@@ -1578,29 +1504,24 @@ mud_update(struct mud *mud)
     return 0;
 }
 
-int
-mud_set_state(struct mud *mud, struct sockaddr *addr,
-              enum mud_state state,
-              unsigned long tx_max_rate,
-              unsigned long rx_max_rate,
-              unsigned long beat,
-              unsigned char fixed_rate,
-              unsigned char preferred,
-              unsigned char loss_limit,
-              uint64_t rtt_limit)
+// Used to configure paths on client.
+int mud_set_state(
+    struct mud *mud,
+    char interface_name[16],
+    enum mud_state state,
+    unsigned long tx_max_rate,
+    unsigned long rx_max_rate,
+    unsigned long beat,
+    unsigned char fixed_rate,
+    unsigned char preferred,
+    unsigned char loss_limit,
+    uint64_t rtt_limit)
 {
     if (!mud->peer.set || state > MUD_UP) {
         errno = EINVAL;
         return -1;
     }
-
-    struct sockaddr_storage local_addr;
-
-    if (mud_ss_from_sa(&local_addr, addr))
-        return -1;
-
-    struct mud_path *path = mud_get_path(mud,
-            &local_addr, &mud->peer.addr, state > MUD_DOWN);
+    struct mud_path *path = mud_get_path(mud, interface_name, &mud->peer.addr, state > MUD_DOWN);
 
     if (!path)
         return -1;

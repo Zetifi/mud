@@ -3,6 +3,7 @@
 #include <stddef.h>
 #include <inttypes.h>
 #include <sys/socket.h>
+#include <net/if.h>
 
 #define MUD_PATH_MAX    (32U)
 #define MUD_PUBKEY_SIZE (32U)
@@ -31,7 +32,8 @@ struct mud_conf {
 
 struct mud_path {
     enum mud_state state;
-    struct sockaddr_storage local_addr, addr, r_addr;
+    char interface_name[16];
+    struct sockaddr_storage remote_address;
     struct mud_stat rtt;
     struct {
         uint64_t total;
@@ -96,9 +98,17 @@ int mud_get_key (struct mud *, unsigned char *, size_t *);
 int mud_set_aes  (struct mud *);
 int mud_set_conf (struct mud *, struct mud_conf *);
 
-int mud_set_state (struct mud *, struct sockaddr *, enum mud_state,
-                   unsigned long, unsigned long, unsigned long,
-                   unsigned char, unsigned char, unsigned char, uint64_t);
+int mud_set_state(
+    struct mud *mud,
+    char interface_name[IFNAMSIZ],
+    enum mud_state state,
+    unsigned long tx_max_rate,
+    unsigned long rx_max_rate,
+    unsigned long beat,
+    unsigned char fixed_rate,
+    unsigned char preferred,
+    unsigned char loss_limit,
+    uint64_t rtt_limit);
 
 int mud_peer (struct mud *, struct sockaddr *);
 
