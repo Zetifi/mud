@@ -414,6 +414,8 @@ mud_send_path(struct mud *mud, struct mud_path *path, uint64_t now,
             .iov_len = size,
         },
         .msg_iovlen = 1,
+        .msg_control = NULL,
+        .msg_controllen = 0,
     };
 
     if (path->remote_address.ss_family == AF_INET)
@@ -422,13 +424,13 @@ mud_send_path(struct mud *mud, struct mud_path *path, uint64_t now,
         msg.msg_name = &path->remote_address;
         msg.msg_namelen = sizeof(struct sockaddr_in);
 
-        size_t control_len = CMSG_SPACE(sizeof(struct in_pktinfo)) + CMSG_SPACE(sizeof(int));
-        unsigned char control[control_len];
-        memset(control, 0, sizeof(control));
-        msg.msg_control = control;
-        msg.msg_controllen = control_len;
+        // size_t control_len = CMSG_SPACE(sizeof(struct in_pktinfo)) + CMSG_SPACE(sizeof(int));
+        // unsigned char control[control_len];
+        // memset(control, 0, sizeof(control));
+        // msg.msg_control = control;
+        // msg.msg_controllen = control_len;
 
-        struct cmsghdr *control_msg = CMSG_FIRSTHDR(&msg);
+        // struct cmsghdr *control_msg = CMSG_FIRSTHDR(&msg);
 
         // // Send packet through the requested path.
         // control_msg->cmsg_level = IPPROTO_IP;
@@ -442,12 +444,12 @@ mud_send_path(struct mud *mud, struct mud_path *path, uint64_t now,
 
         // control_msg = CMSG_NXTHDR(&msg, control_msg);
 
-        // Use tos.
-        control_msg->cmsg_level = IPPROTO_IP;
-        control_msg->cmsg_type = IP_TOS;
-        control_msg->cmsg_len = CMSG_LEN(sizeof(int));
+        // // Use tos.
+        // control_msg->cmsg_level = IPPROTO_IP;
+        // control_msg->cmsg_type = IP_TOS;
+        // control_msg->cmsg_len = CMSG_LEN(sizeof(int));
 
-        memcpy(CMSG_DATA(control_msg), &mud->tc, sizeof(int));
+        // memcpy(CMSG_DATA(control_msg), &mud->tc, sizeof(int));
     }
     else if (path->remote_address.ss_family == AF_INET6)
     {
@@ -455,13 +457,13 @@ mud_send_path(struct mud *mud, struct mud_path *path, uint64_t now,
         msg.msg_name = &path->remote_address;
         msg.msg_namelen = sizeof(struct sockaddr_in6);
 
-        size_t control_len = CMSG_SPACE(sizeof(struct in6_pktinfo)) + CMSG_SPACE(sizeof(int));
-        unsigned char control[control_len];
-        memset(control, 0, sizeof(control));
-        msg.msg_control = control;
-        msg.msg_controllen = control_len;
+        // size_t control_len = CMSG_SPACE(sizeof(struct in6_pktinfo)) + CMSG_SPACE(sizeof(int));
+        // unsigned char control[control_len];
+        // memset(control, 0, sizeof(control));
+        // msg.msg_control = control;
+        // msg.msg_controllen = control_len;
 
-        struct cmsghdr *control_msg = CMSG_FIRSTHDR(&msg);
+        // struct cmsghdr *control_msg = CMSG_FIRSTHDR(&msg);
 
         // // Send packet through the requested path.
         // control_msg->cmsg_level = IPPROTO_IPV6;
@@ -474,12 +476,12 @@ mud_send_path(struct mud *mud, struct mud_path *path, uint64_t now,
 
         // control_msg = CMSG_NXTHDR(&msg, control_msg);
 
-        // Use tos.
-        control_msg->cmsg_level = IPPROTO_IPV6;
-        control_msg->cmsg_type = IPV6_TCLASS;
-        control_msg->cmsg_len = CMSG_LEN(sizeof(int));
+        // // Use tos.
+        // control_msg->cmsg_level = IPPROTO_IPV6;
+        // control_msg->cmsg_type = IPV6_TCLASS;
+        // control_msg->cmsg_len = CMSG_LEN(sizeof(int));
 
-        memcpy(CMSG_DATA(control_msg), &mud->tc, sizeof(int));
+        // memcpy(CMSG_DATA(control_msg), &mud->tc, sizeof(int));
     }
     else
     {
