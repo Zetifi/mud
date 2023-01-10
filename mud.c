@@ -35,6 +35,18 @@
 #define MUD_V4V6 0
 #endif
 
+#if defined IP_PKTINFO
+#define MUD_PKTINFO IP_PKTINFO
+#define MUD_PKTINFO_SRC(X) &((struct in_pktinfo *)(X))->ipi_addr
+#define MUD_PKTINFO_DST(X) &((struct in_pktinfo *)(X))->ipi_spec_dst
+#define MUD_PKTINFO_SIZE sizeof(struct in_pktinfo)
+#elif defined IP_RECVDSTADDR
+#define MUD_PKTINFO IP_RECVDSTADDR
+#define MUD_PKTINFO_SRC(X) (X)
+#define MUD_PKTINFO_DST(X) (X)
+#define MUD_PKTINFO_SIZE sizeof(struct in_addr)
+#endif
+
 #if defined IP_MTU_DISCOVER
 #define MUD_DFRAG IP_MTU_DISCOVER
 #define MUD_DFRAG_OPT IP_PMTUDISC_PROBE
@@ -408,86 +420,148 @@ mud_send_path(struct mud *mud, struct mud_path *path, uint64_t now,
     if (!size || !path)
         return 0;
 
+    unsigned char ctrl[MUD_CTRL_SIZE];
+
     struct msghdr msg = {
-        .msg_iov = &(struct iovec){
+        .msg_name = &path->remote_address,
+        .msg_iov = &(struct iovec) {
             .iov_base = data,
             .iov_len = size,
         },
         .msg_iovlen = 1,
-        .msg_control = NULL,
-        .msg_controllen = 0,
+        .msg_control = ctrl,
     };
 
-    if (path->remote_address.ss_family == AF_INET)
-    {
-        // Send destination address.
-        msg.msg_name = &path->remote_address;
+    memset(ctrl, 0, sizeof(ctrl));
+
+    if (path->remote_address.ss_family == AF_INET) {
         msg.msg_namelen = sizeof(struct sockaddr_in);
+        msg.msg_controllen = CMSG_SPACE(MUD_PKTINFO_SIZE) +
+                             CMSG_SPACE(sizeof(int));
 
-        // size_t control_len = CMSG_SPACE(sizeof(struct in_pktinfo)) + CMSG_SPACE(sizeof(int));
-        // unsigned char control[control_len];
-        // memset(control, 0, sizeof(control));
-        // msg.msg_control = control;
-        // msg.msg_controllen = control_len;
+        struct cmsghdr *cmsg = CMSG_FIRSTHDR(&msg);
 
-        // struct cmsghdr *control_msg = CMSG_FIRSTHDR(&msg);
+        unsigned int ifindex = if_nametoindex(path->interface_name);
 
-        // // Send packet through the requested path.
-        // control_msg->cmsg_level = IPPROTO_IP;
-        // control_msg->cmsg_type = IP_PKTINFO;
-        // control_msg->cmsg_len = CMSG_LEN(sizeof(struct in_pktinfo));
-        // struct in_pktinfo in_pktinfo = {0};
+        cmsg->cmsg_level = IPPROTO_IP;
+        cmsg->cmsg_type = MUD_PKTINFO;
+        cmsg->cmsg_len = CMSG_LEN(MUD_PKTINFO_SIZE);
+        memcpy(&((struct in_pktinfo *)(CMSG_DATA(cmsg)))->ipi_ifindex, &ifindex, sizeof(ifindex));
 
-        // in_pktinfo.ipi_ifindex = if_nametoindex(path->interface_name);
+        cmsg = (struct cmsghdr *)((unsigned char *)cmsg +
+                                  CMSG_SPACE(MUD_PKTINFO_SIZE));
 
-        // memcpy(CMSG_DATA(control_msg), &in_pktinfo, sizeof(struct in_pktinfo));
+        cmsg->cmsg_level = IPPROTO_IP;
+        cmsg->cmsg_type = IP_TOS;
+        cmsg->cmsg_len = CMSG_LEN(sizeof(int));
+        memcpy(CMSG_DATA(cmsg), &mud->tc, sizeof(int));
 
-        // control_msg = CMSG_NXTHDR(&msg, control_msg);
-
-        // // Use tos.
-        // control_msg->cmsg_level = IPPROTO_IP;
-        // control_msg->cmsg_type = IP_TOS;
-        // control_msg->cmsg_len = CMSG_LEN(sizeof(int));
-
-        // memcpy(CMSG_DATA(control_msg), &mud->tc, sizeof(int));
-    }
-    else if (path->remote_address.ss_family == AF_INET6)
-    {
-        // Send destination address.
-        msg.msg_name = &path->remote_address;
+    } else if (path->remote_address.ss_family == AF_INET6) {
         msg.msg_namelen = sizeof(struct sockaddr_in6);
+        msg.msg_controllen = CMSG_SPACE(sizeof(struct in6_pktinfo)) +
+                             CMSG_SPACE(sizeof(int));
 
-        // size_t control_len = CMSG_SPACE(sizeof(struct in6_pktinfo)) + CMSG_SPACE(sizeof(int));
-        // unsigned char control[control_len];
-        // memset(control, 0, sizeof(control));
-        // msg.msg_control = control;
-        // msg.msg_controllen = control_len;
+        struct cmsghdr *cmsg = CMSG_FIRSTHDR(&msg);
 
-        // struct cmsghdr *control_msg = CMSG_FIRSTHDR(&msg);
+        unsigned int ifindex = if_nametoindex(path->interface_name);
 
-        // // Send packet through the requested path.
-        // control_msg->cmsg_level = IPPROTO_IPV6;
-        // control_msg->cmsg_type = IPV6_PKTINFO;
-        // control_msg->cmsg_len = CMSG_LEN(sizeof(struct in6_pktinfo));
-        // struct in6_pktinfo in6_pktinfo = {0};
-        // in6_pktinfo.ipi6_ifindex = if_nametoindex(path->interface_name);
+        cmsg->cmsg_level = IPPROTO_IPV6;
+        cmsg->cmsg_type = IPV6_PKTINFO;
+        cmsg->cmsg_len = CMSG_LEN(sizeof(struct in6_pktinfo));
+        memcpy(&((struct in6_pktinfo *)CMSG_DATA(cmsg))->ipi6_ifindex, &ifindex, sizeof(ifindex));
 
-        // memcpy(CMSG_DATA(control_msg), &in6_pktinfo, sizeof(struct in6_pktinfo));
+        cmsg = (struct cmsghdr *)((unsigned char *)cmsg +
+                                  CMSG_SPACE(sizeof(struct in6_pktinfo)));
 
-        // control_msg = CMSG_NXTHDR(&msg, control_msg);
-
-        // // Use tos.
-        // control_msg->cmsg_level = IPPROTO_IPV6;
-        // control_msg->cmsg_type = IPV6_TCLASS;
-        // control_msg->cmsg_len = CMSG_LEN(sizeof(int));
-
-        // memcpy(CMSG_DATA(control_msg), &mud->tc, sizeof(int));
-    }
-    else
-    {
+        cmsg->cmsg_level = IPPROTO_IPV6;
+        cmsg->cmsg_type = IPV6_TCLASS;
+        cmsg->cmsg_len = CMSG_LEN(sizeof(int));
+        memcpy(CMSG_DATA(cmsg), &mud->tc, sizeof(int));
+    } else {
         errno = EAFNOSUPPORT;
         return -1;
     }
+
+    // struct msghdr msg = {
+    //     .msg_iov = &(struct iovec){
+    //         .iov_base = data,
+    //         .iov_len = size,
+    //     },
+    //     .msg_iovlen = 1,
+    //     .msg_control = NULL,
+    //     .msg_controllen = 0,
+    // };
+
+    // if (path->remote_address.ss_family == AF_INET)
+    // {
+    //     // Send destination address.
+    //     msg.msg_name = &path->remote_address;
+    //     msg.msg_namelen = sizeof(struct sockaddr_in);
+
+    //     // size_t control_len = CMSG_SPACE(sizeof(struct in_pktinfo)) + CMSG_SPACE(sizeof(int));
+    //     // unsigned char control[control_len];
+    //     // memset(control, 0, sizeof(control));
+    //     // msg.msg_control = control;
+    //     // msg.msg_controllen = control_len;
+
+    //     // struct cmsghdr *control_msg = CMSG_FIRSTHDR(&msg);
+
+    //     // // Send packet through the requested path.
+    //     // control_msg->cmsg_level = IPPROTO_IP;
+    //     // control_msg->cmsg_type = IP_PKTINFO;
+    //     // control_msg->cmsg_len = CMSG_LEN(sizeof(struct in_pktinfo));
+    //     // struct in_pktinfo in_pktinfo = {0};
+
+    //     // in_pktinfo.ipi_ifindex = if_nametoindex(path->interface_name);
+
+    //     // memcpy(CMSG_DATA(control_msg), &in_pktinfo, sizeof(struct in_pktinfo));
+
+    //     // control_msg = CMSG_NXTHDR(&msg, control_msg);
+
+    //     // // Use tos.
+    //     // control_msg->cmsg_level = IPPROTO_IP;
+    //     // control_msg->cmsg_type = IP_TOS;
+    //     // control_msg->cmsg_len = CMSG_LEN(sizeof(int));
+
+    //     // memcpy(CMSG_DATA(control_msg), &mud->tc, sizeof(int));
+    // }
+    // else if (path->remote_address.ss_family == AF_INET6)
+    // {
+    //     // Send destination address.
+    //     msg.msg_name = &path->remote_address;
+    //     msg.msg_namelen = sizeof(struct sockaddr_in6);
+
+    //     // size_t control_len = CMSG_SPACE(sizeof(struct in6_pktinfo)) + CMSG_SPACE(sizeof(int));
+    //     // unsigned char control[control_len];
+    //     // memset(control, 0, sizeof(control));
+    //     // msg.msg_control = control;
+    //     // msg.msg_controllen = control_len;
+
+    //     // struct cmsghdr *control_msg = CMSG_FIRSTHDR(&msg);
+
+    //     // // Send packet through the requested path.
+    //     // control_msg->cmsg_level = IPPROTO_IPV6;
+    //     // control_msg->cmsg_type = IPV6_PKTINFO;
+    //     // control_msg->cmsg_len = CMSG_LEN(sizeof(struct in6_pktinfo));
+    //     // struct in6_pktinfo in6_pktinfo = {0};
+    //     // in6_pktinfo.ipi6_ifindex = if_nametoindex(path->interface_name);
+
+    //     // memcpy(CMSG_DATA(control_msg), &in6_pktinfo, sizeof(struct in6_pktinfo));
+
+    //     // control_msg = CMSG_NXTHDR(&msg, control_msg);
+
+    //     // // Use tos.
+    //     // control_msg->cmsg_level = IPPROTO_IPV6;
+    //     // control_msg->cmsg_type = IPV6_TCLASS;
+    //     // control_msg->cmsg_len = CMSG_LEN(sizeof(int));
+
+    //     // memcpy(CMSG_DATA(control_msg), &mud->tc, sizeof(int));
+    // }
+    // else
+    // {
+    //     errno = EAFNOSUPPORT;
+    //     return -1;
+    // }
 
     ssize_t ret = sendmsg(mud->fd, &msg, flags);
 
