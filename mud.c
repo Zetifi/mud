@@ -35,22 +35,6 @@
 #define MUD_V4V6 0
 #endif
 
-#if defined __APPLE__
-#include <mach/mach_time.h>
-#endif
-
-#if defined IP_PKTINFO
-#define MUD_PKTINFO IP_PKTINFO
-#define MUD_PKTINFO_SRC(X) &((struct in_pktinfo *)(X))->ipi_addr
-#define MUD_PKTINFO_DST(X) &((struct in_pktinfo *)(X))->ipi_spec_dst
-#define MUD_PKTINFO_SIZE sizeof(struct in_pktinfo)
-#elif defined IP_RECVDSTADDR
-#define MUD_PKTINFO IP_RECVDSTADDR
-#define MUD_PKTINFO_SRC(X) (X)
-#define MUD_PKTINFO_DST(X) (X)
-#define MUD_PKTINFO_SIZE sizeof(struct in_addr)
-#endif
-
 #if defined IP_MTU_DISCOVER
 #define MUD_DFRAG IP_MTU_DISCOVER
 #define MUD_DFRAG_OPT IP_PMTUDISC_PROBE
@@ -80,7 +64,7 @@
 #define MUD_MTU_MIN (1280U + MUD_PKT_MIN_SIZE)
 #define MUD_MTU_MAX (1450U + MUD_PKT_MIN_SIZE)
 
-#define MUD_CTRL_SIZE (CMSG_SPACE(MUD_PKTINFO_SIZE) + \
+#define MUD_CTRL_SIZE (CMSG_SPACE(sizeof(struct in_pktinfo)) + \
                        CMSG_SPACE(sizeof(struct in6_pktinfo)) + \
                        CMSG_SPACE(sizeof(int)))
 
@@ -446,12 +430,15 @@ mud_send_path(struct mud *mud, struct mud_path *path, uint64_t now,
 
         struct cmsghdr *control_msg = CMSG_FIRSTHDR(&msg);
 
-        // Send packet through the requested path if you're the client.
+        // Send packet through the requested path.
         control_msg->cmsg_level = IPPROTO_IP;
-        control_msg->cmsg_type = MUD_PKTINFO;
+        control_msg->cmsg_type = IP_PKTINFO;
         control_msg->cmsg_len = CMSG_LEN(sizeof(struct in_pktinfo));
-        struct in_pktinfo *in_pktinfo = (struct in_pktinfo *)CMSG_DATA(control_msg);
+        struct in_pktinfo *in_pktinfo = {0};
+
         in_pktinfo->ipi_ifindex = if_nametoindex(path->interface_name);
+
+        memcpy(CMSG_DATA(control_msg), in_pktinfo, sizeof(struct in_pktinfo));
 
         control_msg = CMSG_NXTHDR(&msg, control_msg);
 
@@ -459,8 +446,8 @@ mud_send_path(struct mud *mud, struct mud_path *path, uint64_t now,
         control_msg->cmsg_level = IPPROTO_IP;
         control_msg->cmsg_type = IP_TOS;
         control_msg->cmsg_len = CMSG_LEN(sizeof(int));
-        int *tos = (int *)CMSG_DATA(control_msg);
-        *tos = mud->tc;
+
+        memcpy(CMSG_DATA(control_msg), &mud->tc, sizeof(int));
     }
     else if (path->remote_address.ss_family == AF_INET6)
     {
@@ -476,12 +463,14 @@ mud_send_path(struct mud *mud, struct mud_path *path, uint64_t now,
 
         struct cmsghdr *control_msg = CMSG_FIRSTHDR(&msg);
 
-        // Send packet through the requested path if you're the client.
+        // Send packet through the requested path.
         control_msg->cmsg_level = IPPROTO_IPV6;
         control_msg->cmsg_type = IPV6_PKTINFO;
         control_msg->cmsg_len = CMSG_LEN(sizeof(struct in6_pktinfo));
-        struct in6_pktinfo *in6_pktinfo = (struct in6_pktinfo *)CMSG_DATA(control_msg);
+        struct in6_pktinfo *in6_pktinfo = {0};
         in6_pktinfo->ipi6_ifindex = if_nametoindex(path->interface_name);
+
+        memcpy(CMSG_DATA(control_msg), in6_pktinfo, sizeof(struct in6_pktinfo));
 
         control_msg = CMSG_NXTHDR(&msg, control_msg);
 
@@ -489,8 +478,8 @@ mud_send_path(struct mud *mud, struct mud_path *path, uint64_t now,
         control_msg->cmsg_level = IPPROTO_IPV6;
         control_msg->cmsg_type = IPV6_TCLASS;
         control_msg->cmsg_len = CMSG_LEN(sizeof(int));
-        int *tos = (int *)CMSG_DATA(control_msg);
-        *tos = mud->tc;
+
+        memcpy(CMSG_DATA(control_msg), &mud->tc, sizeof(int));
     }
     else
     {
@@ -812,7 +801,7 @@ static int
 mud_setup_socket(int fd, int v4, int v6)
 {
     if ((mud_sso_int(fd, SOL_SOCKET, SO_REUSEADDR, 1)) ||
-        (v4 && mud_sso_int(fd, IPPROTO_IP, MUD_PKTINFO, 1)) ||
+        (v4 && mud_sso_int(fd, IPPROTO_IP, IP_PKTINFO, 1)) ||
         (v6 && mud_sso_int(fd, IPPROTO_IPV6, IPV6_RECVPKTINFO, 1)) ||
         (v6 && mud_sso_int(fd, IPPROTO_IPV6, IPV6_V6ONLY, !v4)))
         return -1;
@@ -1339,7 +1328,7 @@ mud_recv(struct mud *mud, void *data, size_t size)
 
     struct cmsghdr *control_msg = CMSG_FIRSTHDR(&msg);
     while (control_msg &&
-           !((control_msg->cmsg_level == IPPROTO_IP && control_msg->cmsg_type == MUD_PKTINFO) ||
+           !((control_msg->cmsg_level == IPPROTO_IP && control_msg->cmsg_type == IP_PKTINFO) ||
              (control_msg->cmsg_level == IPPROTO_IPV6 && control_msg->cmsg_type == IPV6_PKTINFO)))
     {
         control_msg = CMSG_NXTHDR(&msg, control_msg);
