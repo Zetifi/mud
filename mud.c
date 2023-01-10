@@ -430,17 +430,17 @@ mud_send_path(struct mud *mud, struct mud_path *path, uint64_t now,
 
         struct cmsghdr *control_msg = CMSG_FIRSTHDR(&msg);
 
-        // Send packet through the requested path.
-        control_msg->cmsg_level = IPPROTO_IP;
-        control_msg->cmsg_type = IP_PKTINFO;
-        control_msg->cmsg_len = CMSG_LEN(sizeof(struct in_pktinfo));
-        struct in_pktinfo in_pktinfo = {0};
+        // // Send packet through the requested path.
+        // control_msg->cmsg_level = IPPROTO_IP;
+        // control_msg->cmsg_type = IP_PKTINFO;
+        // control_msg->cmsg_len = CMSG_LEN(sizeof(struct in_pktinfo));
+        // struct in_pktinfo in_pktinfo = {0};
 
-        in_pktinfo.ipi_ifindex = if_nametoindex(path->interface_name);
+        // in_pktinfo.ipi_ifindex = if_nametoindex(path->interface_name);
 
-        memcpy(CMSG_DATA(control_msg), &in_pktinfo, sizeof(struct in_pktinfo));
+        // memcpy(CMSG_DATA(control_msg), &in_pktinfo, sizeof(struct in_pktinfo));
 
-        control_msg = CMSG_NXTHDR(&msg, control_msg);
+        // control_msg = CMSG_NXTHDR(&msg, control_msg);
 
         // Use tos.
         control_msg->cmsg_level = IPPROTO_IP;
@@ -463,16 +463,16 @@ mud_send_path(struct mud *mud, struct mud_path *path, uint64_t now,
 
         struct cmsghdr *control_msg = CMSG_FIRSTHDR(&msg);
 
-        // Send packet through the requested path.
-        control_msg->cmsg_level = IPPROTO_IPV6;
-        control_msg->cmsg_type = IPV6_PKTINFO;
-        control_msg->cmsg_len = CMSG_LEN(sizeof(struct in6_pktinfo));
-        struct in6_pktinfo in6_pktinfo = {0};
-        in6_pktinfo.ipi6_ifindex = if_nametoindex(path->interface_name);
+        // // Send packet through the requested path.
+        // control_msg->cmsg_level = IPPROTO_IPV6;
+        // control_msg->cmsg_type = IPV6_PKTINFO;
+        // control_msg->cmsg_len = CMSG_LEN(sizeof(struct in6_pktinfo));
+        // struct in6_pktinfo in6_pktinfo = {0};
+        // in6_pktinfo.ipi6_ifindex = if_nametoindex(path->interface_name);
 
-        memcpy(CMSG_DATA(control_msg), &in6_pktinfo, sizeof(struct in6_pktinfo));
+        // memcpy(CMSG_DATA(control_msg), &in6_pktinfo, sizeof(struct in6_pktinfo));
 
-        control_msg = CMSG_NXTHDR(&msg, control_msg);
+        // control_msg = CMSG_NXTHDR(&msg, control_msg);
 
         // Use tos.
         control_msg->cmsg_level = IPPROTO_IPV6;
