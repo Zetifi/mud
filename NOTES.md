@@ -153,6 +153,6 @@ c_r    -->
   - An path is LAGGY if it's rtt is greater than the rtt limit.
   - An path is LOSSY if it's % lost is greater than the loss limit. Being LOSSY overwrites being LAGGY.
   - An path is OK if it's neither LOSSY or LAGGY.
-- If there is one or more OK path, then choose one at random.
+- If there is one or more OK path, then choose one a random OK path for each packet.
 - If there are no OK paths, then choose the LAGGY path with the lowest rtt.
-- If there are no LAGGY paths, then choose the preferred LOSSY path. This is the worse case scenario.
+- If there are no LAGGY paths, then choose the LOSSY path with the lowest loss.

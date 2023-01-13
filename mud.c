@@ -370,13 +370,15 @@ mud_select_path(struct mud *mud)
     uint64_t best_laggy_rtt = -1;
 
     struct mud_path *fallback_path = NULL;
+    uint64_t best_lossy_loss = -1;
 
     for (unsigned i = 0; i < mud->count; i++)
     {
         struct mud_path *path = &mud->paths[(r + i) % mud->count];
         uint64_t rtt = path->rtt.val;
+        uint64_t loss = path->tx.loss;
         bool laggy = rtt >= path->conf.rtt_limit;
-        bool lossy = path->tx.loss >= path->conf.loss_limit;
+        bool lossy = loss >= path->conf.loss_limit;
 
         if (best_path == NULL && !laggy && !lossy)
         {
@@ -392,9 +394,10 @@ mud_select_path(struct mud *mud)
         }
         else
         {
-            if (fallback_path == NULL && path->conf.preferred)
+            if (fallback_path == NULL || loss < best_lossy_loss)
             {
                 fallback_path = path;
+                best_lossy_loss = loss;
             }
         }
     }
@@ -481,87 +484,6 @@ mud_send_path(struct mud *mud, struct mud_path *path, uint64_t now,
         errno = EAFNOSUPPORT;
         return -1;
     }
-
-    // struct msghdr msg = {
-    //     .msg_iov = &(struct iovec){
-    //         .iov_base = data,
-    //         .iov_len = size,
-    //     },
-    //     .msg_iovlen = 1,
-    //     .msg_control = NULL,
-    //     .msg_controllen = 0,
-    // };
-
-    // if (path->remote_address.ss_family == AF_INET)
-    // {
-    //     // Send destination address.
-    //     msg.msg_name = &path->remote_address;
-    //     msg.msg_namelen = sizeof(struct sockaddr_in);
-
-    //     // size_t control_len = CMSG_SPACE(sizeof(struct in_pktinfo)) + CMSG_SPACE(sizeof(int));
-    //     // unsigned char control[control_len];
-    //     // memset(control, 0, sizeof(control));
-    //     // msg.msg_control = control;
-    //     // msg.msg_controllen = control_len;
-
-    //     // struct cmsghdr *control_msg = CMSG_FIRSTHDR(&msg);
-
-    //     // // Send packet through the requested path.
-    //     // control_msg->cmsg_level = IPPROTO_IP;
-    //     // control_msg->cmsg_type = IP_PKTINFO;
-    //     // control_msg->cmsg_len = CMSG_LEN(sizeof(struct in_pktinfo));
-    //     // struct in_pktinfo in_pktinfo = {0};
-
-    //     // in_pktinfo.ipi_ifindex = if_nametoindex(path->interface_name);
-
-    //     // memcpy(CMSG_DATA(control_msg), &in_pktinfo, sizeof(struct in_pktinfo));
-
-    //     // control_msg = CMSG_NXTHDR(&msg, control_msg);
-
-    //     // // Use tos.
-    //     // control_msg->cmsg_level = IPPROTO_IP;
-    //     // control_msg->cmsg_type = IP_TOS;
-    //     // control_msg->cmsg_len = CMSG_LEN(sizeof(int));
-
-    //     // memcpy(CMSG_DATA(control_msg), &mud->tc, sizeof(int));
-    // }
-    // else if (path->remote_address.ss_family == AF_INET6)
-    // {
-    //     // Send destination address.
-    //     msg.msg_name = &path->remote_address;
-    //     msg.msg_namelen = sizeof(struct sockaddr_in6);
-
-    //     // size_t control_len = CMSG_SPACE(sizeof(struct in6_pktinfo)) + CMSG_SPACE(sizeof(int));
-    //     // unsigned char control[control_len];
-    //     // memset(control, 0, sizeof(control));
-    //     // msg.msg_control = control;
-    //     // msg.msg_controllen = control_len;
-
-    //     // struct cmsghdr *control_msg = CMSG_FIRSTHDR(&msg);
-
-    //     // // Send packet through the requested path.
-    //     // control_msg->cmsg_level = IPPROTO_IPV6;
-    //     // control_msg->cmsg_type = IPV6_PKTINFO;
-    //     // control_msg->cmsg_len = CMSG_LEN(sizeof(struct in6_pktinfo));
-    //     // struct in6_pktinfo in6_pktinfo = {0};
-    //     // in6_pktinfo.ipi6_ifindex = if_nametoindex(path->interface_name);
-
-    //     // memcpy(CMSG_DATA(control_msg), &in6_pktinfo, sizeof(struct in6_pktinfo));
-
-    //     // control_msg = CMSG_NXTHDR(&msg, control_msg);
-
-    //     // // Use tos.
-    //     // control_msg->cmsg_level = IPPROTO_IPV6;
-    //     // control_msg->cmsg_type = IPV6_TCLASS;
-    //     // control_msg->cmsg_len = CMSG_LEN(sizeof(int));
-
-    //     // memcpy(CMSG_DATA(control_msg), &mud->tc, sizeof(int));
-    // }
-    // else
-    // {
-    //     errno = EAFNOSUPPORT;
-    //     return -1;
-    // }
 
     ssize_t ret = sendmsg(mud->fd, &msg, flags);
 
