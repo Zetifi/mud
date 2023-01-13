@@ -1532,11 +1532,11 @@ mud_update(struct mud *mud)
         if (mud->peer.set) {
             uint64_t timeout = path->conf.beat;
 
-            if (path->msg.sent >= MUD_MSG_SENT_MAX) {
-                timeout = 2 * MUD_MSG_SENT_MAX * timeout;
-            } else if (path->ok && mud_timeout(now, path->idle, MUD_ONE_SEC)) {
-                timeout = mud->keepalive;
-            }
+            // if (path->msg.sent >= MUD_MSG_SENT_MAX) {
+            //     timeout = 2 * MUD_MSG_SENT_MAX * timeout;
+            // } else if (path->ok && mud_timeout(now, path->idle, MUD_ONE_SEC)) {
+            //     timeout = mud->keepalive;
+            // }
 
             if (mud_timeout(now, path->msg.time, timeout)) {
                 path->msg.sent++;
